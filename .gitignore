@@ -29,4 +29,7 @@ groups/global/*
 .idea/
 .vscode/
 
+# Git worktrees
+.worktrees/
+
 agents-sdk-docs
