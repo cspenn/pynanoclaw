@@ -1,3 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+credentials.yml
+
 # Dependencies
 node_modules/
 
