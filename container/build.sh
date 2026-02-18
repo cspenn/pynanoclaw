@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the NanoClaw agent container image
+# Build the NanoClaw agent container image (Python 3.11)
 
 set -e
 
@@ -20,4 +20,4 @@ echo "Build complete!"
 echo "Image: ${IMAGE_NAME}:${TAG}"
 echo ""
 echo "Test with:"
-echo "  echo '{\"prompt\":\"What is 2+2?\",\"groupFolder\":\"test\",\"chatJid\":\"test@g.us\",\"isMain\":false}' | container run -i ${IMAGE_NAME}:${TAG}"
+echo "  echo '{\"prompt\":\"What is 2+2?\",\"group_folder\":\"test\",\"chat_jid\":\"test@g.us\",\"is_main\":false}' | container run -i ${IMAGE_NAME}:${TAG}"

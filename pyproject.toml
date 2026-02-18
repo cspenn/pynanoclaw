@@ -1,0 +1,79 @@
+# start pyproject.toml
+[project]
+name = "nanoclaw"
+version = "0.1.0"
+description = "Personal Claude assistant connecting WhatsApp to agent containers"
+requires-python = ">=3.11"
+dependencies = [
+    "neonize>=0.3.14",
+    "claude-agent-sdk>=0.1.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+    "croniter>=2.0.0",
+]
+
+[project.scripts]
+nanoclaw = "nanoclaw.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nanoclaw"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.30.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "bandit>=1.7.0",
+    "radon>=6.0.0",
+    "xenon>=0.9.0",
+    "interrogate>=1.7.0",
+    "deptry>=0.16.0",
+    "types-pyyaml>=6.0.0",
+    "types-croniter>=2.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["_archive/", "alembic/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RET"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+exclude = ["_archive/", "alembic/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.deptry]
+# alembic: used as CLI tool (alembic upgrade head), not directly imported in src/
+# claude-agent-sdk: used in container/agent-runner/src/main.py, not in src/nanoclaw/
+per_rule_ignores.DEP002 = ["alembic", "claude-agent-sdk"]
+
+[tool.bandit]
+exclude_dirs = ["tests", "_archive"]
+skips = ["B101"]
+
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+fail-under = 80
+exclude = ["_archive", "alembic"]
+# end pyproject.toml
