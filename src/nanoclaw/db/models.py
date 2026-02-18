@@ -206,7 +206,7 @@ def create_engine_for_path(db_path: str) -> Engine:
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
 
     @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection: object, connection_record: object) -> None:
+    def set_sqlite_pragma(dbapi_connection: object, _connection_record: object) -> None:
         """Enable WAL mode and foreign keys for each new connection."""
         cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA journal_mode=WAL")

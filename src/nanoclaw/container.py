@@ -450,7 +450,7 @@ async def run_container_agent(
     return _parse_final_output(stdout_all, container_name, group.name)
 
 
-def _parse_final_output(stdout: str, container_name: str, group_name: str) -> ContainerOutput:
+def _parse_final_output(stdout: str, container_name: str, _group_name: str) -> ContainerOutput:
     """Parse the final ContainerOutput from accumulated stdout.
 
     Args:

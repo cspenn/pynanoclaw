@@ -147,6 +147,88 @@ async def _check_due_tasks(
         )
 
 
+def _resolve_task_context(
+    task: ScheduledTask,
+    start_time: float,
+    registered_groups_fn: Callable[[], dict[str, RegisteredGroup]],
+    get_sessions_fn: Callable[[], dict[str, str]],
+    db_ops: Any,
+) -> tuple[RegisteredGroup, str | None] | None:
+    """Resolve the group and session for a scheduled task.
+
+    Args:
+        task: The scheduled task to resolve context for.
+        start_time: Monotonic start time for duration calculation on error.
+        registered_groups_fn: Callable returning registered groups.
+        get_sessions_fn: Callable returning session dict.
+        db_ops: Database operations module.
+
+    Returns:
+        Tuple of (group, session_id) on success, or None if group not found.
+    """
+    groups = registered_groups_fn()
+    group = next(
+        (g for g in groups.values() if g.folder == task.group_folder),
+        None,
+    )
+    if not group:
+        logger.error("Task %s references unknown group folder: %s", task.id, task.group_folder)
+        _log_error(
+            task.id,
+            int((time.monotonic() - start_time) * 1000),
+            f"Group not found: {task.group_folder}",
+            db_ops,
+        )
+        return None
+    sessions = get_sessions_fn()
+    session_id = sessions.get(task.group_folder) if task.context_mode == "group" else None
+    return group, session_id
+
+
+def _log_task_completion(
+    task: ScheduledTask,
+    start_time: float,
+    status: str,
+    result: str | None,
+    error: str | None,
+    timezone_str: str,
+    db_ops: Any,
+) -> None:
+    """Log the task run result and update the next_run timestamp.
+
+    Args:
+        task: The scheduled task that ran.
+        start_time: Monotonic start time for duration calculation.
+        status: Agent run status ('success' or 'error').
+        result: Agent output text, if any.
+        error: Error message, if any.
+        timezone_str: Timezone for next-run calculation.
+        db_ops: Database operations module.
+    """
+    from nanoclaw.types import TaskRunLog
+
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    db_ops.log_task_run(
+        TaskRunLog(
+            task_id=task.id,
+            run_at=datetime.now(UTC).isoformat(),
+            duration_ms=duration_ms,
+            status="error" if error else "success",
+            result=result,
+            error=error,
+        )
+    )
+    next_run = _calculate_next_run(task.schedule_type, task.schedule_value, timezone_str)
+    result_summary = f"Error: {error}" if error else (result[:200] if result else "Completed")
+    db_ops.update_task_after_run(task.id, next_run, result_summary)
+    logger.info(
+        "Task %s completed in %dms (status=%s)",
+        task.id,
+        duration_ms,
+        "error" if error else "success",
+    )
+
+
 async def _run_task(
     task: ScheduledTask,
     idle_timeout_ms: int,
@@ -181,23 +263,12 @@ async def _run_task(
     start_time = time.monotonic()
     logger.info("Running scheduled task %s for group %s", task.id, task.group_folder)
 
-    groups = registered_groups_fn()
-    group = next(
-        (g for g in groups.values() if g.folder == task.group_folder),
-        None,
+    resolved = _resolve_task_context(
+        task, start_time, registered_groups_fn, get_sessions_fn, db_ops
     )
-    if not group:
-        logger.error("Task %s references unknown group folder: %s", task.id, task.group_folder)
-        _log_error(
-            task.id,
-            int((time.monotonic() - start_time) * 1000),
-            f"Group not found: {task.group_folder}",
-            db_ops,
-        )
+    if resolved is None:
         return
-
-    sessions = get_sessions_fn()
-    session_id = sessions.get(task.group_folder) if task.context_mode == "group" else None
+    group, session_id = resolved
 
     prompt = (
         f"[SCHEDULED TASK - The following message was sent automatically "
@@ -255,30 +326,8 @@ async def _run_task(
         error = str(exc)
         logger.error("Task %s failed with exception: %s", task.id, exc)
 
-    duration_ms = int((time.monotonic() - start_time) * 1000)
-
-    from nanoclaw.types import TaskRunLog
-
-    db_ops.log_task_run(
-        TaskRunLog(
-            task_id=task.id,
-            run_at=datetime.now(UTC).isoformat(),
-            duration_ms=duration_ms,
-            status="error" if error else "success",
-            result=result,
-            error=error,
-        )
-    )
-
-    next_run = _calculate_next_run(task.schedule_type, task.schedule_value, timezone_str)
-    result_summary = f"Error: {error}" if error else (result[:200] if result else "Completed")
-    db_ops.update_task_after_run(task.id, next_run, result_summary)
-
-    logger.info(
-        "Task %s completed in %dms (status=%s)",
-        task.id,
-        duration_ms,
-        "error" if error else "success",
+    _log_task_completion(
+        task, start_time, "error" if error else "success", result, error, timezone_str, db_ops
     )
 
 

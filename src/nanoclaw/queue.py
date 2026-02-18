@@ -228,11 +228,11 @@ class GroupQueue:
         except OSError:
             pass
 
-    async def shutdown(self, grace_period_ms: int = 10000) -> None:
+    async def shutdown(self, _grace_period_ms: int = 10000) -> None:
         """Signal shutdown. Active containers are detached, not killed.
 
         Args:
-            grace_period_ms: Grace period in ms (unused; containers self-terminate).
+            _grace_period_ms: Grace period in ms (unused; containers self-terminate).
         """
         self._shutting_down = True
         active_containers = [

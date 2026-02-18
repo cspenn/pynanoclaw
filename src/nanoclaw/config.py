@@ -111,7 +111,7 @@ class LoggingConfig(BaseModel):
 
     @field_validator("level")
     @classmethod
-    def validate_level(cls, v: str) -> str:
+    def validate_level(_cls, v: str) -> str:  # noqa: N804
         """Validate log level is a known value."""
         valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v.upper() not in valid:

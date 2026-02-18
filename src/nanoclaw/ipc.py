@@ -119,6 +119,47 @@ async def _process_all_ipc_dirs(
         await _process_ipc_tasks(tasks_dir, source_group, is_main, deps, db_ops, ipc_base)
 
 
+async def _process_single_ipc_message(
+    file_path: Path,
+    source_group: str,
+    is_main: bool,
+    registered_groups: dict[str, RegisteredGroup],
+    deps: IpcDeps,
+    ipc_base: Path,
+) -> None:
+    """Process a single IPC message JSON file.
+
+    Args:
+        file_path: Path to the message JSON file.
+        source_group: The group folder identity (from directory path).
+        is_main: Whether this is the main group.
+        registered_groups: Current registered groups dict.
+        deps: Injected dependencies.
+        ipc_base: Root IPC directory for error file placement.
+    """
+    try:
+        data = json.loads(file_path.read_text())
+        if data.get("type") == "message" and data.get("chatJid") and data.get("text"):
+            chat_jid = data["chatJid"]
+            target_group = registered_groups.get(chat_jid)
+            authorized = is_main or (
+                target_group is not None and target_group.folder == source_group
+            )
+            if authorized:
+                await deps.send_message(chat_jid, data["text"])
+                logger.info("IPC message sent to %s from %s", chat_jid, source_group)
+            else:
+                logger.warning(
+                    "Unauthorized IPC message blocked: source=%s target=%s",
+                    source_group,
+                    chat_jid,
+                )
+        file_path.unlink(missing_ok=True)
+    except Exception as exc:
+        logger.error("Error processing IPC message %s: %s", file_path.name, exc)
+        _move_to_errors(file_path, source_group, ipc_base)
+
+
 async def _process_ipc_messages(
     messages_dir: Path,
     source_group: str,
@@ -145,27 +186,9 @@ async def _process_ipc_messages(
         return
 
     for file_path in message_files:
-        try:
-            data = json.loads(file_path.read_text())
-            if data.get("type") == "message" and data.get("chatJid") and data.get("text"):
-                chat_jid = data["chatJid"]
-                target_group = registered_groups.get(chat_jid)
-                authorized = is_main or (
-                    target_group is not None and target_group.folder == source_group
-                )
-                if authorized:
-                    await deps.send_message(chat_jid, data["text"])
-                    logger.info("IPC message sent to %s from %s", chat_jid, source_group)
-                else:
-                    logger.warning(
-                        "Unauthorized IPC message blocked: source=%s target=%s",
-                        source_group,
-                        chat_jid,
-                    )
-            file_path.unlink(missing_ok=True)
-        except Exception as exc:
-            logger.error("Error processing IPC message %s: %s", file_path.name, exc)
-            _move_to_errors(file_path, source_group, ipc_base)
+        await _process_single_ipc_message(
+            file_path, source_group, is_main, registered_groups, deps, ipc_base
+        )
 
 
 async def _process_ipc_tasks(
@@ -444,49 +467,88 @@ def _handle_register_group(
     )
 
 
+def _calculate_cron_next_run(schedule_value: str) -> str | None:
+    """Calculate the next run time for a cron schedule.
+
+    Args:
+        schedule_value: Cron expression string.
+
+    Returns:
+        ISO timestamp string, or None if the expression is invalid.
+    """
+    from datetime import datetime
+
+    try:
+        cron = croniter(schedule_value, datetime.now(UTC))
+        return cron.get_next(datetime).isoformat()
+    except Exception:
+        logger.warning("Invalid cron expression: %s", schedule_value)
+        return None
+
+
+def _calculate_interval_next_run(schedule_value: str) -> str | None:
+    """Calculate the next run time for an interval schedule.
+
+    Args:
+        schedule_value: Interval in milliseconds as a string.
+
+    Returns:
+        ISO timestamp string, or None if the value is invalid.
+    """
+    import time
+    from datetime import datetime
+
+    try:
+        ms = int(schedule_value)
+        if ms <= 0:
+            raise ValueError("Interval must be positive")
+        next_ts = datetime.fromtimestamp(time.time() + ms / 1000, tz=UTC)
+        return next_ts.isoformat()
+    except (ValueError, TypeError):
+        logger.warning("Invalid interval value: %s", schedule_value)
+        return None
+
+
+def _calculate_once_next_run(schedule_value: str) -> str | None:
+    """Calculate the next run time for a one-shot schedule.
+
+    Args:
+        schedule_value: ISO timestamp string for the single run.
+
+    Returns:
+        ISO timestamp string, or None if the value is invalid.
+    """
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(schedule_value)
+        return dt.isoformat()
+    except ValueError:
+        logger.warning("Invalid once timestamp: %s", schedule_value)
+        return None
+
+
 def _calculate_next_run(
     schedule_type: str,
     schedule_value: str,
-    timezone_str: str,
+    timezone_str: str,  # noqa: ARG001
 ) -> str | None:
     """Calculate the next run time for a scheduled task.
 
     Args:
         schedule_type: 'cron', 'interval', or 'once'.
         schedule_value: Cron string, milliseconds, or ISO timestamp.
-        timezone_str: Timezone for cron calculation.
+        timezone_str: Timezone string (reserved for future use).
 
     Returns:
         ISO timestamp string, or None if the input is invalid.
     """
-    from datetime import datetime
-
     if schedule_type == "cron":
-        try:
-            cron = croniter(schedule_value, datetime.now(UTC))
-            return cron.get_next(datetime).isoformat()
-        except Exception:
-            logger.warning("Invalid cron expression: %s", schedule_value)
-            return None
-    elif schedule_type == "interval":
-        try:
-            ms = int(schedule_value)
-            if ms <= 0:
-                raise ValueError("Interval must be positive")
-            import time
-
-            next_ts = datetime.fromtimestamp(time.time() + ms / 1000, tz=UTC)
-            return next_ts.isoformat()
-        except (ValueError, TypeError):
-            logger.warning("Invalid interval value: %s", schedule_value)
-            return None
-    elif schedule_type == "once":
-        try:
-            dt = datetime.fromisoformat(schedule_value)
-            return dt.isoformat()
-        except ValueError:
-            logger.warning("Invalid once timestamp: %s", schedule_value)
-            return None
+        return _calculate_cron_next_run(schedule_value)
+    if schedule_type == "interval":
+        return _calculate_interval_next_run(schedule_value)
+    if schedule_type == "once":
+        return _calculate_once_next_run(schedule_value)
     return None
 
 

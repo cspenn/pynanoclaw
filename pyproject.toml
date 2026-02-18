@@ -29,11 +29,15 @@ dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-httpx>=0.30.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "bandit>=1.7.0",
     "radon>=6.0.0",
     "xenon>=0.9.0",
+    "vulture>=2.11",
+    "pylint>=3.2.0",
+    "pip-audit>=2.7.0",
     "interrogate>=1.7.0",
     "deptry>=0.16.0",
     "types-pyyaml>=6.0.0",
@@ -60,6 +64,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+addopts = "--cov=src --cov-fail-under=100 --cov-report=term-missing"
 
 [tool.deptry]
 # alembic: used as CLI tool (alembic upgrade head), not directly imported in src/

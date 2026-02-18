@@ -199,41 +199,57 @@ class NanoClawOrchestrator:
     # Container system helpers
     # ------------------------------------------------------------------
 
-    def _ensure_container_system(self) -> None:
-        """Ensure Apple Container system is running; kill orphaned containers.
-
-        Checks container system status and starts it if needed. Also kills
-        any nanoclaw-* containers left running from a previous crash.
+    def _start_container_system(self) -> None:
+        """Start the Apple Container system.
 
         Raises:
-            RuntimeError: If the container system cannot be started.
+            RuntimeError: If the container system fails to start.
         """
-        # Check status.
-        result = subprocess.run(
-            ["container", "system", "status"],
+        logger.info("Container system not running, starting it...")
+        start_result = subprocess.run(
+            ["container", "system", "start"],
             capture_output=True,
-            timeout=10,
+            timeout=30,
         )
-        if result.returncode != 0:
-            logger.info("Container system not running, starting it...")
-            start_result = subprocess.run(
-                ["container", "system", "start"],
-                capture_output=True,
-                timeout=30,
+        if start_result.returncode != 0:
+            stderr = start_result.stderr.decode(errors="replace")
+            msg = (
+                "┌─────────────────────────────────────────────────┐\n"
+                "│  ERROR: Apple Container system failed to start  │\n"
+                "└─────────────────────────────────────────────────┘\n"
+                f"stderr: {stderr}"
             )
-            if start_result.returncode != 0:
-                stderr = start_result.stderr.decode(errors="replace")
-                msg = (
-                    "┌─────────────────────────────────────────────────┐\n"
-                    "│  ERROR: Apple Container system failed to start  │\n"
-                    "└─────────────────────────────────────────────────┘\n"
-                    f"stderr: {stderr}"
-                )
-                logger.error(msg)
-                raise RuntimeError(f"Container system start failed: {stderr}")
-            logger.info("Container system started.")
+            logger.error(msg)
+            raise RuntimeError(f"Container system start failed: {stderr}")
+        logger.info("Container system started.")
 
-        # Kill orphaned nanoclaw-* containers.
+    def _stop_running_nanoclaw_containers(self, raw: str) -> None:
+        """Parse container list JSON and stop any running nanoclaw-* containers.
+
+        Args:
+            raw: JSON string from ``container ls --format json``.
+        """
+        containers: list[dict[str, str]] | dict[str, str] = json.loads(raw)
+        if isinstance(containers, dict):
+            # Some versions return a single object instead of a list.
+            containers = [containers]
+        for ct in containers:
+            name = ct.get("name", "") or ct.get("Name", "")
+            status = ct.get("status", "") or ct.get("Status", "")
+            if (
+                isinstance(name, str)
+                and name.startswith("nanoclaw-")
+                and "running" in status.lower()
+            ):
+                logger.info("Killing orphaned container %s (status=%s)", name, status)
+                subprocess.run(
+                    ["container", "stop", name],
+                    capture_output=True,
+                    timeout=10,
+                )
+
+    def _kill_orphaned_containers(self) -> None:
+        """Kill any nanoclaw-* containers left running from a previous crash."""
         try:
             ls_result = subprocess.run(
                 ["container", "ls", "--format", "json"],
@@ -243,26 +259,27 @@ class NanoClawOrchestrator:
             if ls_result.returncode == 0:
                 raw = ls_result.stdout.decode(errors="replace").strip()
                 if raw:
-                    containers = json.loads(raw)
-                    if isinstance(containers, dict):
-                        # Some versions return a single object.
-                        containers = [containers]
-                    for ct in containers:
-                        name = ct.get("name", "") or ct.get("Name", "")
-                        status = ct.get("status", "") or ct.get("Status", "")
-                        if (
-                            isinstance(name, str)
-                            and name.startswith("nanoclaw-")
-                            and "running" in status.lower()
-                        ):
-                            logger.info("Killing orphaned container %s (status=%s)", name, status)
-                            subprocess.run(
-                                ["container", "stop", name],
-                                capture_output=True,
-                                timeout=10,
-                            )
+                    self._stop_running_nanoclaw_containers(raw)
         except Exception as exc:
             logger.warning("Could not check for orphaned containers: %s", exc)
+
+    def _ensure_container_system(self) -> None:
+        """Ensure Apple Container system is running; kill orphaned containers.
+
+        Checks container system status and starts it if needed. Also kills
+        any nanoclaw-* containers left running from a previous crash.
+
+        Raises:
+            RuntimeError: If the container system cannot be started.
+        """
+        result = subprocess.run(
+            ["container", "system", "status"],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            self._start_container_system()
+        self._kill_orphaned_containers()
 
     # ------------------------------------------------------------------
     # State persistence
@@ -482,6 +499,50 @@ class NanoClawOrchestrator:
     # Main message loop
     # ------------------------------------------------------------------
 
+    def _dispatch_chat_to_queue(self, chat_jid: str, group_msgs: list[NewMessage]) -> None:
+        """Check trigger and pipe or enqueue messages for one chat group.
+
+        Fetches all pending messages since the last agent run, then either
+        pipes them to an active container or enqueues a new one.
+
+        Args:
+            chat_jid: JID of the group to dispatch.
+            group_msgs: New messages just arrived for this group.
+        """
+        group = self.registered_groups.get(chat_jid)
+        if not group:
+            return
+
+        is_main = group.folder == MAIN_GROUP_FOLDER
+        needs_trigger = not is_main and group.requires_trigger is not False
+
+        if needs_trigger:
+            trigger_pattern = self.config.trigger_pattern
+            has_trigger = any(trigger_pattern.search(m.content.strip()) for m in group_msgs)
+            if not has_trigger:
+                # Message stored in DB; wait for a trigger mention.
+                return
+
+        # Gather all pending messages since the last agent run.
+        all_pending = get_messages_since(
+            chat_jid,
+            self.last_agent_timestamp.get(chat_jid, ""),
+            self.config.assistant.name,
+        )
+        messages_to_send = all_pending if all_pending else group_msgs
+        formatted = format_messages(messages_to_send)
+
+        assert self.queue is not None
+        if self.queue.send_message(chat_jid, formatted):
+            # Successfully piped to the active container.
+            self.last_agent_timestamp[chat_jid] = messages_to_send[-1].timestamp
+            self._save_state()
+            if self.channel:
+                asyncio.create_task(self.channel.set_typing(chat_jid, True))
+        else:
+            # No active container — enqueue a new one.
+            self.queue.enqueue_message_check(chat_jid)
+
     async def _start_message_loop(self) -> None:
         """Poll for new messages and route them to agent containers.
 
@@ -492,7 +553,6 @@ class NanoClawOrchestrator:
           4. Pipe to active container or enqueue for a new one.
         """
         logger.info("NanoClaw running (trigger: @%s)", self.config.assistant.name)
-        trigger_pattern = self.config.trigger_pattern
 
         while not self._shutting_down:
             try:
@@ -511,40 +571,7 @@ class NanoClawOrchestrator:
                         by_group.setdefault(msg.chat_jid, []).append(msg)
 
                     for chat_jid, group_msgs in by_group.items():
-                        group = self.registered_groups.get(chat_jid)
-                        if not group:
-                            continue
-
-                        is_main = group.folder == MAIN_GROUP_FOLDER
-                        needs_trigger = not is_main and group.requires_trigger is not False
-
-                        if needs_trigger:
-                            has_trigger = any(
-                                trigger_pattern.search(m.content.strip()) for m in group_msgs
-                            )
-                            if not has_trigger:
-                                # Message stored in DB; wait for a trigger mention.
-                                continue
-
-                        # Gather all pending messages since the last agent run.
-                        all_pending = get_messages_since(
-                            chat_jid,
-                            self.last_agent_timestamp.get(chat_jid, ""),
-                            self.config.assistant.name,
-                        )
-                        messages_to_send = all_pending if all_pending else group_msgs
-                        formatted = format_messages(messages_to_send)
-
-                        assert self.queue is not None
-                        if self.queue.send_message(chat_jid, formatted):
-                            # Successfully piped to the active container.
-                            self.last_agent_timestamp[chat_jid] = messages_to_send[-1].timestamp
-                            self._save_state()
-                            if self.channel:
-                                asyncio.create_task(self.channel.set_typing(chat_jid, True))
-                        else:
-                            # No active container — enqueue a new one.
-                            self.queue.enqueue_message_check(chat_jid)
+                        self._dispatch_chat_to_queue(chat_jid, group_msgs)
 
             except Exception as exc:
                 logger.error("Error in message loop: %s", exc, exc_info=True)
@@ -554,6 +581,59 @@ class NanoClawOrchestrator:
     # ------------------------------------------------------------------
     # Group message processor (called by GroupQueue)
     # ------------------------------------------------------------------
+
+    def _fetch_pending_messages(
+        self, chat_jid: str, group: RegisteredGroup, is_main: bool
+    ) -> list[NewMessage] | None:
+        """Fetch messages to process and check trigger requirements.
+
+        Args:
+            chat_jid: JID of the group.
+            group: The registered group record.
+            is_main: Whether this is the main group.
+
+        Returns:
+            List of messages to process, or None if nothing should run.
+        """
+        since = self.last_agent_timestamp.get(chat_jid, "")
+        missed = get_messages_since(chat_jid, since, self.config.assistant.name)
+        if not missed:
+            return None
+        if not is_main and group.requires_trigger is not False:
+            trigger_pattern = self.config.trigger_pattern
+            if not any(trigger_pattern.search(m.content.strip()) for m in missed):
+                return None
+        return missed
+
+    def _finalize_group_run(
+        self,
+        chat_jid: str,
+        status: str,
+        had_error: bool,
+        output_sent: bool,
+        prev_cursor: str,
+    ) -> bool:
+        """Handle post-run cursor state based on success or error.
+
+        Args:
+            chat_jid: JID of the group.
+            status: Agent run status string.
+            had_error: Whether an error frame was received during streaming.
+            output_sent: Whether any output was sent to the user.
+            prev_cursor: Cursor value to restore on failure with no output.
+
+        Returns:
+            True to signal success; False to request retry with backoff.
+        """
+        if status == "error" or had_error:
+            if output_sent:
+                logger.warning("Agent error after output sent for %s; keeping cursor", chat_jid)
+                return True
+            # Roll back the cursor so the messages will be retried.
+            self.last_agent_timestamp[chat_jid] = prev_cursor
+            self._save_state()
+            return False
+        return True
 
     async def _process_group_messages(self, chat_jid: str) -> bool:
         """Process all pending messages for a group.
@@ -574,17 +654,9 @@ class NanoClawOrchestrator:
             return True
 
         is_main = group.folder == MAIN_GROUP_FOLDER
-        since = self.last_agent_timestamp.get(chat_jid, "")
-        missed = get_messages_since(chat_jid, since, self.config.assistant.name)
-
-        if not missed:
+        missed = self._fetch_pending_messages(chat_jid, group, is_main)
+        if missed is None:
             return True
-
-        # Check trigger for non-main groups.
-        if not is_main and group.requires_trigger is not False:
-            trigger_pattern = self.config.trigger_pattern
-            if not any(trigger_pattern.search(m.content.strip()) for m in missed):
-                return True
 
         prompt = format_messages(missed)
 
@@ -632,16 +704,7 @@ class NanoClawOrchestrator:
         if idle_task and not idle_task.done():
             idle_task.cancel()
 
-        if status == "error" or had_error:
-            if output_sent:
-                logger.warning("Agent error after output sent for %s; keeping cursor", chat_jid)
-                return True
-            # Roll back the cursor so the messages will be retried.
-            self.last_agent_timestamp[chat_jid] = prev_cursor
-            self._save_state()
-            return False
-
-        return True
+        return self._finalize_group_run(chat_jid, status, had_error, output_sent, prev_cursor)
 
     async def _idle_close(self, chat_jid: str) -> None:
         """Close container stdin after idle timeout.

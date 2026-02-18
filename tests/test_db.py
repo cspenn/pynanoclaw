@@ -271,4 +271,183 @@ class TestRegisteredGroupOperations:
         assert len(all_groups) == 2
         assert "g1@g.us" in all_groups
         assert "g2@g.us" in all_groups
+
+
+# ---------------------------------------------------------------------------
+# Additional tests to cover missing lines
+# ---------------------------------------------------------------------------
+
+
+class TestGetEngineNotInitialized:
+    """Tests for get_engine() when the database is not yet initialised (lines 59, 75)."""
+
+    def test_get_engine_raises_when_not_initialized(self) -> None:
+        """get_engine() raises RuntimeError when init_database() has not been called (line 75)."""
+        # Temporarily clear the engine
+        original = db._engine
+        db._engine = None
+        try:
+            with pytest.raises(RuntimeError, match="Database not initialized"):
+                db.get_engine()
+        finally:
+            db._engine = original
+
+    def test_init_database_creates_parent_dir(self, tmp_path) -> None:
+        """init_database() creates parent directories for a new file-based database (line 59)."""
+        db_path = str(tmp_path / "nested" / "subdir" / "nanoclaw.db")
+        db.init_database(db_path)
+        assert (tmp_path / "nested" / "subdir" / "nanoclaw.db").exists()
+        # Reset back to :memory: for isolation
+        db.init_database(":memory:")
+
+
+class TestGetTasksForGroup:
+    """Tests for get_tasks_for_group (lines 392-399)."""
+
+    def _make_task(self, task_id: str, group_folder: str) -> ScheduledTask:
+        return ScheduledTask(
+            id=task_id,
+            group_folder=group_folder,
+            chat_jid=f"{group_folder}@g.us",
+            prompt="Do something",
+            schedule_type="cron",
+            schedule_value="0 9 * * *",
+            context_mode="isolated",
+            next_run="2024-01-01T09:00:00Z",
+            status="active",
+            created_at="2024-01-01T00:00:00Z",
+        )
+
+    def test_get_tasks_for_group_returns_only_matching(self) -> None:
+        """get_tasks_for_group returns only tasks belonging to the specified group (lines 392-399)."""
+        db.create_task(self._make_task("t1", "main"))
+        db.create_task(self._make_task("t2", "friends"))
+        db.create_task(self._make_task("t3", "main"))
+
+        tasks = db.get_tasks_for_group("main")
+        assert len(tasks) == 2
+        assert all(t.group_folder == "main" for t in tasks)
+
+    def test_get_tasks_for_group_returns_empty_when_none(self) -> None:
+        """get_tasks_for_group returns empty list for a group with no tasks."""
+        tasks = db.get_tasks_for_group("nonexistent")
+        assert tasks == []
+
+
+class TestGetAllTasks:
+    """Tests for get_all_tasks (lines 408-413)."""
+
+    def _make_task(self, task_id: str) -> ScheduledTask:
+        return ScheduledTask(
+            id=task_id,
+            group_folder="main",
+            chat_jid="chat@g.us",
+            prompt="Prompt",
+            schedule_type="cron",
+            schedule_value="0 * * * *",
+            status="active",
+            created_at="2024-01-01T00:00:00Z",
+        )
+
+    def test_get_all_tasks_returns_all(self) -> None:
+        """get_all_tasks returns every task in the database (lines 408-413)."""
+        db.create_task(self._make_task("a1"))
+        db.create_task(self._make_task("a2"))
+        db.create_task(self._make_task("a3"))
+
+        tasks = db.get_all_tasks()
+        assert len(tasks) == 3
+
+    def test_get_all_tasks_empty_db(self) -> None:
+        """get_all_tasks returns an empty list when no tasks exist."""
+        tasks = db.get_all_tasks()
+        assert tasks == []
+
+
+class TestUpdateTaskFields:
+    """Tests for update_task individual field updates (lines 457, 459, 461, 463, 467)."""
+
+    def setup_method(self) -> None:
+        """Insert a base task for each test."""
+        self._task = ScheduledTask(
+            id="upd-1",
+            group_folder="main",
+            chat_jid="chat@g.us",
+            prompt="original prompt",
+            schedule_type="cron",
+            schedule_value="0 9 * * *",
+            context_mode="isolated",
+            next_run="2024-06-01T09:00:00Z",
+            status="active",
+            created_at="2024-01-01T00:00:00Z",
+        )
+        db.create_task(self._task)
+
+    def test_update_task_prompt(self) -> None:
+        """update_task changes only the prompt field (line 457)."""
+        db.update_task("upd-1", prompt="new prompt")
+        t = db.get_task_by_id("upd-1")
+        assert t is not None
+        assert t.prompt == "new prompt"
+        assert t.status == "active"  # unchanged
+
+    def test_update_task_schedule_type(self) -> None:
+        """update_task changes only the schedule_type field (line 459)."""
+        db.update_task("upd-1", schedule_type="interval")
+        t = db.get_task_by_id("upd-1")
+        assert t is not None
+        assert t.schedule_type == "interval"
+
+    def test_update_task_schedule_value(self) -> None:
+        """update_task changes only the schedule_value field (line 461)."""
+        db.update_task("upd-1", schedule_value="3600000")
+        t = db.get_task_by_id("upd-1")
+        assert t is not None
+        assert t.schedule_value == "3600000"
+
+    def test_update_task_next_run(self) -> None:
+        """update_task changes only the next_run field (line 463)."""
+        db.update_task("upd-1", next_run="2025-01-01T00:00:00Z")
+        t = db.get_task_by_id("upd-1")
+        assert t is not None
+        assert t.next_run == "2025-01-01T00:00:00Z"
+
+    def test_update_task_no_fields_is_noop(self) -> None:
+        """update_task with no arguments returns without touching the DB (line 467)."""
+        db.update_task("upd-1")  # No fields supplied — must not raise
+        t = db.get_task_by_id("upd-1")
+        assert t is not None
+        assert t.prompt == "original prompt"
+
+
+class TestRowToGroupContainerConfig:
+    """Tests for _row_to_group with invalid container_config JSON (lines 718-721)."""
+
+    def test_invalid_container_config_json_yields_none(self) -> None:
+        """A malformed container_config JSON in the DB row logs a warning and returns None (lines 718-721)."""
+        # Insert a group with a well-known JID
+        db.set_registered_group(
+            "cfg@g.us",
+            RegisteredGroup(
+                name="Config Group",
+                folder="cfg-group",
+                trigger="@Andy",
+                added_at="2024-01-01T00:00:00Z",
+            ),
+        )
+
+        # Manually corrupt the container_config in the DB
+        from nanoclaw.db.models import RegisteredGroup as RGRow
+        from sqlalchemy.orm import Session
+
+        with Session(db.get_engine()) as session:
+            row = session.get(RGRow, "cfg@g.us")
+            assert row is not None
+            row.container_config = "NOT-VALID-JSON{{{"
+            session.commit()
+
+        # Now get_registered_group should return the group with container_config=None
+        group = db.get_registered_group("cfg@g.us")
+        assert group is not None
+        assert group.container_config is None
 # end tests/test_db.py
