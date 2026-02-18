@@ -4,20 +4,20 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 ## Quick Context
 
-Single Node.js process that connects to WhatsApp, routes messages to Claude Agent SDK running in Apple Container (Linux VMs). Each group has isolated filesystem and memory.
+Single Python 3.11 asyncio process that connects to WhatsApp, routes messages to Claude Agent SDK running in Apple Container (Linux VMs). Each group has isolated filesystem and memory.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Orchestrator: state, message loop, agent invocation |
-| `src/channels/whatsapp.ts` | WhatsApp connection, auth, send/receive |
-| `src/ipc.ts` | IPC watcher and task processing |
-| `src/router.ts` | Message formatting and outbound routing |
-| `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
-| `src/task-scheduler.ts` | Runs scheduled tasks |
-| `src/db.ts` | SQLite operations |
+| `src/nanoclaw/main.py` | Orchestrator: state, message loop, agent invocation |
+| `src/nanoclaw/channels/whatsapp.py` | WhatsApp connection, auth, send/receive |
+| `src/nanoclaw/ipc.py` | IPC watcher and task processing |
+| `src/nanoclaw/router.py` | Message formatting and outbound routing |
+| `src/nanoclaw/config.py` | Configuration (config.yml + credentials.yml) |
+| `src/nanoclaw/container.py` | Spawns agent containers with mounts |
+| `src/nanoclaw/scheduler.py` | Runs scheduled tasks |
+| `src/nanoclaw/db/operations.py` | SQLite operations (via SQLAlchemy) |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
 | `container/skills/agent-browser.md` | Browser automation tool (available to all agents via Bash) |
 
@@ -34,12 +34,14 @@ Single Node.js process that connects to WhatsApp, routes messages to Claude Agen
 Run commands directly—don't tell the user to run them.
 
 ```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+uv run python -m nanoclaw.main  # Run directly
+uv sync                          # Install dependencies
+uv run pytest tests/             # Run tests
+./checkpython.sh                 # Quality gate
+./container/build.sh             # Rebuild agent container
 ```
 
-Service management:
+Service management (the plist uses `uv run python -m nanoclaw.main`):
 ```bash
 launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
@@ -54,4 +56,4 @@ container builder stop && container builder rm && container builder start
 ./container/build.sh
 ```
 
-Always verify after rebuild: `container run -i --rm --entrypoint wc nanoclaw-agent:latest -l /app/src/index.ts`
+Always verify after rebuild: `container run -i --rm --entrypoint wc nanoclaw-agent:latest -l /app/src/main.py`
