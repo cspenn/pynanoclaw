@@ -112,27 +112,28 @@ claude
 ## 系统要求
 
 - macOS 或 Linux
-- Node.js 20+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)（包管理器）
 - [Claude Code](https://claude.ai/download)
 - [Apple Container](https://github.com/apple/container) (macOS) 或 [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
 
 ## 架构
 
 ```
-WhatsApp (baileys) --> SQLite --> 轮询循环 --> 容器 (Claude Agent SDK) --> 响应
+WhatsApp (neonize) --> SQLite --> 轮询循环 --> 容器 (Claude Agent SDK) --> 响应
 ```
 
-单一 Node.js 进程。智能体在具有挂载目录的隔离 Linux 容器中执行。每个群组独立的消息队列，带全局并发控制。通过文件系统进行进程间通信（IPC）。
+单一 Python 3.11 asyncio 进程。智能体在具有挂载目录的隔离 Linux 容器中执行。每个群组独立的消息队列，带全局并发控制。通过文件系统进行进程间通信（IPC）。
 
 关键文件：
-- `src/index.ts` - 编排器：状态管理、消息循环、智能体调用
-- `src/channels/whatsapp.ts` - WhatsApp 连接、认证、收发消息
-- `src/ipc.ts` - IPC 监听与任务处理
-- `src/router.ts` - 消息格式化与出站路由
-- `src/group-queue.ts` - 每群组队列，带全局并发限制
-- `src/container-runner.ts` - 生成流式智能体容器
-- `src/task-scheduler.ts` - 运行计划任务
-- `src/db.ts` - SQLite 操作（消息、群组、会话、状态）
+- `src/nanoclaw/main.py` - 编排器：状态管理、消息循环、智能体调用
+- `src/nanoclaw/channels/whatsapp.py` - WhatsApp 连接、认证、收发消息
+- `src/nanoclaw/ipc.py` - IPC 监听与任务处理
+- `src/nanoclaw/router.py` - 消息格式化与出站路由
+- `src/nanoclaw/queue.py` - 每群组队列，带全局并发限制
+- `src/nanoclaw/container.py` - 生成流式智能体容器
+- `src/nanoclaw/scheduler.py` - 运行计划任务
+- `src/nanoclaw/db/operations.py` - SQLite 操作（通过 SQLAlchemy）
 - `groups/*/CLAUDE.md` - 各群组的记忆
 
 ## FAQ

@@ -37,7 +37,7 @@ Run commands directly—don't tell the user to run them.
 uv run python -m nanoclaw.main  # Run directly
 uv sync                          # Install dependencies
 uv run pytest tests/             # Run tests
-./checkpython.sh                 # Quality gate
+./checkpython.sh                 # Full quality gate (Tier 1–3)
 ./container/build.sh             # Rebuild agent container
 ```
 
@@ -46,6 +46,18 @@ Service management (the plist uses `uv run python -m nanoclaw.main`):
 launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
 ```
+
+## Quality Gates
+
+All source changes must pass `./checkpython.sh`. Key thresholds:
+
+- **100% line coverage** — enforced by `--cov-fail-under=100` in `pyproject.toml`
+- **No Grade C complexity** — radon CC: all functions must be Grade A or B (CC ≤ 10)
+- **Xenon** — `--max-absolute B --max-modules A --max-average A` (module average ≤ 5)
+- **Vulture** — no unused code at 80% confidence; prefix intentionally-unused params with `_`
+- **Mypy** — strict mode, zero errors
+
+When modifying source code, run `uv run pytest tests/ --cov=src --cov-report=term-missing` to identify any coverage gaps before committing.
 
 ## Container Build Cache
 

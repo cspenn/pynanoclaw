@@ -113,27 +113,28 @@ Skills we'd love to see:
 ## Requirements
 
 - macOS or Linux
-- Node.js 20+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (package manager)
 - [Claude Code](https://claude.ai/download)
 - [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
 
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+WhatsApp (neonize) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
 ```
 
-Single Node.js process. Agents execute in isolated Linux containers with mounted directories. Per-group message queue with concurrency control. IPC via filesystem.
+Single Python 3.11 asyncio process. Agents execute in isolated Linux containers with mounted directories. Per-group message queue with concurrency control. IPC via filesystem.
 
 Key files:
-- `src/index.ts` - Orchestrator: state, message loop, agent invocation
-- `src/channels/whatsapp.ts` - WhatsApp connection, auth, send/receive
-- `src/ipc.ts` - IPC watcher and task processing
-- `src/router.ts` - Message formatting and outbound routing
-- `src/group-queue.ts` - Per-group queue with global concurrency limit
-- `src/container-runner.ts` - Spawns streaming agent containers
-- `src/task-scheduler.ts` - Runs scheduled tasks
-- `src/db.ts` - SQLite operations (messages, groups, sessions, state)
+- `src/nanoclaw/main.py` - Orchestrator: state, message loop, agent invocation
+- `src/nanoclaw/channels/whatsapp.py` - WhatsApp connection, auth, send/receive
+- `src/nanoclaw/ipc.py` - IPC watcher and task processing
+- `src/nanoclaw/router.py` - Message formatting and outbound routing
+- `src/nanoclaw/queue.py` - Per-group queue with global concurrency limit
+- `src/nanoclaw/container.py` - Spawns streaming agent containers
+- `src/nanoclaw/scheduler.py` - Runs scheduled tasks
+- `src/nanoclaw/db/operations.py` - SQLite operations (via SQLAlchemy)
 - `groups/*/CLAUDE.md` - Per-group memory
 
 ## FAQ
