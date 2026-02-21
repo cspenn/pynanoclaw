@@ -94,7 +94,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, quality stan
 - macOS or Linux
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (package manager)
-- [Claude Code](https://claude.ai/download)
+- [Claude Code](https://claude.com/download)
 - [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
 
 ## Architecture
