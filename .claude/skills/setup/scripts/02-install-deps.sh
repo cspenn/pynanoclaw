@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# 02-install-deps.sh — Run npm install and verify key packages
+# 02-install-deps.sh — Run uv sync and verify key packages
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -13,17 +13,17 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [install-deps] $*" >> "$LOG_FILE"; 
 
 cd "$PROJECT_ROOT"
 
-log "Running npm install"
+log "Running uv sync"
 
-if npm install >> "$LOG_FILE" 2>&1; then
-  log "npm install succeeded"
+if uv sync >> "$LOG_FILE" 2>&1; then
+  log "uv sync succeeded"
 else
-  log "npm install failed"
+  log "uv sync failed"
   cat <<EOF
 === NANOCLAW SETUP: INSTALL_DEPS ===
 PACKAGES: failed
 STATUS: failed
-ERROR: npm_install_failed
+ERROR: uv_sync_failed
 LOG: logs/setup.log
 === END ===
 EOF
@@ -32,10 +32,8 @@ fi
 
 # Verify key packages
 MISSING=""
-for pkg in @whiskeysockets/baileys better-sqlite3 pino qrcode; do
-  if [ ! -d "$PROJECT_ROOT/node_modules/$pkg" ]; then
-    MISSING="$MISSING $pkg"
-  fi
+for pkg in neonize sqlalchemy pydantic nanoclaw; do
+  uv run python -c "import $pkg" 2>/dev/null || MISSING="$MISSING $pkg"
 done
 
 if [ -n "$MISSING" ]; then

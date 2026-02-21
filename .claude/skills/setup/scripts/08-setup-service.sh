@@ -31,28 +31,11 @@ if [ -z "$PLATFORM" ]; then
   esac
 fi
 
-NODE_PATH=$(which node)
+UV_PATH=$(which uv)
 PROJECT_PATH="$PROJECT_ROOT"
 HOME_PATH="$HOME"
 
-log "Setting up service: platform=$PLATFORM node=$NODE_PATH project=$PROJECT_PATH"
-
-# Build first
-log "Building TypeScript"
-if ! npm run build >> "$LOG_FILE" 2>&1; then
-  log "Build failed"
-  cat <<EOF
-=== NANOCLAW SETUP: SETUP_SERVICE ===
-SERVICE_TYPE: unknown
-NODE_PATH: $NODE_PATH
-PROJECT_PATH: $PROJECT_PATH
-STATUS: failed
-ERROR: build_failed
-LOG: logs/setup.log
-=== END ===
-EOF
-  exit 1
-fi
+log "Setting up service: platform=$PLATFORM uv=$UV_PATH project=$PROJECT_PATH"
 
 # Create logs directory
 mkdir -p "$PROJECT_PATH/logs"
@@ -74,8 +57,11 @@ case "$PLATFORM" in
     <string>com.nanoclaw</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${NODE_PATH}</string>
-        <string>${PROJECT_PATH}/dist/index.js</string>
+        <string>${UV_PATH}</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>nanoclaw.main</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_PATH}</string>
@@ -86,7 +72,7 @@ case "$PLATFORM" in
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:${HOME_PATH}/.local/bin</string>
+        <string>${HOME_PATH}/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>${HOME_PATH}</string>
     </dict>
@@ -117,7 +103,7 @@ PLISTEOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: launchd
-NODE_PATH: $NODE_PATH
+UV_PATH: $UV_PATH
 PROJECT_PATH: $PROJECT_PATH
 PLIST_PATH: $PLIST_PATH
 SERVICE_LOADED: $SERVICE_LOADED
@@ -140,12 +126,12 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${NODE_PATH} ${PROJECT_PATH}/dist/index.js
+ExecStart=${UV_PATH} run python -m nanoclaw.main
 WorkingDirectory=${PROJECT_PATH}
 Restart=always
 RestartSec=5
 Environment=HOME=${HOME_PATH}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:${HOME_PATH}/.local/bin
+Environment=PATH=${HOME_PATH}/.local/bin:/usr/local/bin:/usr/bin:/bin
 StandardOutput=append:${PROJECT_PATH}/logs/nanoclaw.log
 StandardError=append:${PROJECT_PATH}/logs/nanoclaw.error.log
 
@@ -170,7 +156,7 @@ UNITEOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: systemd
-NODE_PATH: $NODE_PATH
+UV_PATH: $UV_PATH
 PROJECT_PATH: $PROJECT_PATH
 UNIT_PATH: $UNIT_PATH
 SERVICE_LOADED: $SERVICE_LOADED
@@ -185,7 +171,7 @@ EOF
     cat <<EOF
 === NANOCLAW SETUP: SETUP_SERVICE ===
 SERVICE_TYPE: unknown
-NODE_PATH: $NODE_PATH
+UV_PATH: $UV_PATH
 PROJECT_PATH: $PROJECT_PATH
 STATUS: failed
 ERROR: unsupported_platform

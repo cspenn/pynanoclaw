@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .venv/
 *.egg-info/
+.coverage
 credentials.yml
 
 # Dependencies
