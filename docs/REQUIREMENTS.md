@@ -1,14 +1,12 @@
 # NanoClaw Requirements
 
-Original requirements and design decisions from the project creator.
+Architecture decisions and design philosophy for the Python 3.11 fork.
 
 ---
 
 ## Why This Exists
 
-This is a lightweight, secure alternative to OpenClaw (formerly ClawBot). That project became a monstrosity - 4-5 different processes running different gateways, endless configuration files, endless integrations. It's a security nightmare where agents don't run in isolated processes; there's all kinds of leaky workarounds trying to prevent them from accessing parts of the system they shouldn't. It's impossible for anyone to realistically understand the whole codebase. When you run it you're kind of just yoloing it.
-
-NanoClaw gives you the core functionality without that mess.
+This is a Python 3.11 port of NanoClaw (https://github.com/gavrielc/nanoclaw). The original NanoClaw is a great project — lightweight, auditable, and genuinely secure through OS-level container isolation. This fork replaces the TypeScript/Node.js implementation with Python 3.11, enabling Python-native tooling, strict type checking, pytest coverage enforcement, and a development workflow using uv and mypy.
 
 ---
 
@@ -16,7 +14,7 @@ NanoClaw gives you the core functionality without that mess.
 
 ### Small Enough to Understand
 
-The entire codebase should be something you can read and understand. One Node.js process. A handful of source files. No microservices, no message queues, no abstraction layers.
+The entire codebase should be something you can read and understand. One Python 3.11 asyncio process. A handful of source files. No microservices, no message queues, no abstraction layers.
 
 ### Security Through True Isolation
 
@@ -24,7 +22,7 @@ Instead of application-level permission systems trying to prevent agents from ac
 
 ### Built for One User
 
-This isn't a framework or a platform. It's working software for my specific needs. I use WhatsApp and Email, so it supports WhatsApp and Email. I don't use Telegram, so it doesn't support Telegram. I add the integrations I actually want, not every possible integration.
+This isn't a framework or a platform. It's working software for my specific needs. WhatsApp is the base I/O channel. Optional integrations (Gmail, Telegram, X) are added via skills. I add the integrations I actually want, not every possible integration.
 
 ### Customization = Code Changes
 
@@ -48,19 +46,11 @@ Skills we'd love contributors to build:
 
 ### Communication Channels
 Skills to add or switch to different messaging platforms:
-- `/add-telegram` - Add Telegram as an input channel
 - `/add-slack` - Add Slack as an input channel
 - `/add-discord` - Add Discord as an input channel
 - `/add-sms` - Add SMS via Twilio or similar
-- `/convert-to-telegram` - Replace WhatsApp with Telegram entirely
-
-### Container Runtime
-The project currently uses Apple Container (macOS-only). We need:
-- `/convert-to-docker` - Replace Apple Container with standard Docker
-- This unlocks Linux support and broader deployment options
 
 ### Platform Support
-- `/setup-linux` - Make the full setup work on Linux (depends on Docker conversion)
 - `/setup-windows` - Windows support via WSL2 + Docker
 
 ---
@@ -90,7 +80,7 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 ### Message Routing
 - A router listens to WhatsApp and routes messages based on configuration
 - Only messages from registered groups are processed
-- Trigger: `@Andy` prefix (case insensitive), configurable via `ASSISTANT_NAME` env var
+- Trigger: `@chris` prefix (case insensitive), configurable via `ASSISTANT_NAME` env var
 - Unregistered groups are ignored completely
 
 ### Memory System
@@ -138,7 +128,7 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 ## Integration Points
 
 ### WhatsApp
-- Using baileys library for WhatsApp Web connection
+- Using neonize library for WhatsApp Web connection (Python port of the Baileys protocol)
 - Messages stored in SQLite, polled by router
 - QR code authentication during setup
 
@@ -176,7 +166,7 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 
 ### Deployment
 - Runs on local Mac via launchd
-- Single Node.js process handles everything
+- Single Python 3.11 asyncio process handles everything
 
 ---
 
@@ -184,8 +174,8 @@ A personal Claude assistant accessible via WhatsApp, with minimal custom code.
 
 These are the creator's settings, stored here for reference:
 
-- **Trigger**: `@Andy` (case insensitive)
-- **Response prefix**: `Andy:`
+- **Trigger**: `@chris` (case insensitive)
+- **Response prefix**: `Chris:`
 - **Persona**: Default Claude (no custom personality)
 - **Main channel**: Self-chat (messaging yourself in WhatsApp)
 
@@ -193,4 +183,4 @@ These are the creator's settings, stored here for reference:
 
 ## Project Name
 
-**NanoClaw** - A reference to Clawdbot (now OpenClaw).
+**NanoClaw** - A lightweight personal Claude assistant. This Python fork (pynanoclaw) is built on the original NanoClaw by [gavrielc](https://github.com/gavrielc/nanoclaw).

@@ -34,16 +34,34 @@ When adding or modifying source code, include tests that keep coverage at 100%. 
 
 ## Skills
 
-A [skill](https://code.claude.com/docs/en/skills) is a markdown file in `.claude/skills/` that teaches Claude Code how to transform a NanoClaw installation.
+A [skill](https://code.claude.com/docs/en/skills) is a markdown file under `.claude/skills/<skill-name>/` that teaches Claude Code how to transform a NanoClaw installation.
 
-A PR that contributes a skill should not modify any source files.
+A skill PR should contain only the skill file(s), not source code changes.
 
-Your skill should contain the **instructions** Claude follows to add the feature—not pre-built code. See `/convert-to-docker` for a good example.
+Your skill should contain the **instructions** Claude follows to add the feature—not pre-built code. Look at existing skills in `.claude/skills/` for reference on structure and style.
 
 ### Why?
 
 Every user should have clean and minimal code that does exactly what they need. Skills let users selectively add features to their fork without inheriting code for features they don't want.
 
-### Testing
+## RFS (Request for Skills)
+
+The following skills are wanted. If you build one, open a PR at [github.com/cspenn/pynanoclaw/pulls](https://github.com/cspenn/pynanoclaw/pulls).
+
+### Communication Channels
+
+- `/add-slack` — Add Slack as input/output channel
+- `/add-discord` — Add Discord as input/output channel
+- `/add-sms` — Add SMS via Twilio or similar
+
+### Platform Support
+
+- `/setup-windows` — Windows via WSL2 + Docker
+
+### Session Management
+
+- `/add-clear` — Add a `/clear` command that compacts the conversation (summarizes context while preserving critical information). Requires figuring out how to trigger compaction programmatically via the Claude Agent SDK.
+
+## Testing
 
 Test your skill by running it on a fresh clone before submitting.
